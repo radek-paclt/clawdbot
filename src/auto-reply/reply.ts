@@ -231,13 +231,13 @@ function resolveElevatedPermissions(params: {
   if (!globalAllowed) return { enabled, allowed: false };
 
   const agentAllowed = agentConfig?.allowFrom
-      ? isApprovedElevatedSender({
-          provider: params.provider,
-          ctx: params.ctx,
-          allowFrom: agentConfig.allowFrom,
-          fallbackAllowFrom,
-        })
-      : true;
+    ? isApprovedElevatedSender({
+        provider: params.provider,
+        ctx: params.ctx,
+        allowFrom: agentConfig.allowFrom,
+        fallbackAllowFrom,
+      })
+    : true;
   return { enabled, allowed: globalAllowed && agentAllowed };
 }
 
@@ -667,8 +667,13 @@ export async function getReplyFromConfig(
       : undefined;
 
   const isEmptyConfig = Object.keys(cfg).length === 0;
+  const skipWhenConfigEmpty = command.providerId
+    ? Boolean(
+        getProviderPlugin(command.providerId)?.commands?.skipWhenConfigEmpty,
+      )
+    : false;
   if (
-    command.isWhatsAppProvider &&
+    skipWhenConfigEmpty &&
     isEmptyConfig &&
     command.from &&
     command.to &&

@@ -279,6 +279,7 @@ export async function runReplyAgent(params: {
   const replyToMode = resolveReplyToMode(
     followupRun.run.config,
     replyToChannel,
+    sessionCtx.AccountId,
   );
   const applyReplyToMode = createReplyToModeFilterForChannel(
     replyToMode,
