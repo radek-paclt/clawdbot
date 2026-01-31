@@ -1,7 +1,10 @@
 import { Type } from "@sinclair/typebox";
 
+import { WEB_FETCH_PROXY } from "../../config/api-endpoints.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import { formatCliCommand } from "../../cli/command-format.js";
+import { closeDispatcher } from "../../infra/net/ssrf.js";
+import { ProxyAgent, type Dispatcher } from "undici";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringParam } from "./common.js";
 import {
@@ -265,6 +268,11 @@ function resolveSiteName(url: string | undefined): string | undefined {
   }
 }
 
+function resolveSearchDispatcher(): Dispatcher | undefined {
+  if (!WEB_FETCH_PROXY) return undefined;
+  return new ProxyAgent(WEB_FETCH_PROXY);
+}
+
 async function runPerplexitySearch(params: {
   query: string;
   apiKey: string;
@@ -273,37 +281,42 @@ async function runPerplexitySearch(params: {
   timeoutSeconds: number;
 }): Promise<{ content: string; citations: string[] }> {
   const endpoint = `${params.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const dispatcher = resolveSearchDispatcher();
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.apiKey}`,
+        "HTTP-Referer": "https://clawdbot.com",
+        "X-Title": "Clawdbot Web Search",
+      },
+      body: JSON.stringify({
+        model: params.model,
+        messages: [
+          {
+            role: "user",
+            content: params.query,
+          },
+        ],
+      }),
+      signal: withTimeout(undefined, params.timeoutSeconds * 1000),
+      dispatcher,
+    });
 
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.apiKey}`,
-      "HTTP-Referer": "https://clawdbot.com",
-      "X-Title": "Clawdbot Web Search",
-    },
-    body: JSON.stringify({
-      model: params.model,
-      messages: [
-        {
-          role: "user",
-          content: params.query,
-        },
-      ],
-    }),
-    signal: withTimeout(undefined, params.timeoutSeconds * 1000),
-  });
+    if (!res.ok) {
+      const detail = await readResponseText(res);
+      throw new Error(`Perplexity API error (${res.status}): ${detail || res.statusText}`);
+    }
 
-  if (!res.ok) {
-    const detail = await readResponseText(res);
-    throw new Error(`Perplexity API error (${res.status}): ${detail || res.statusText}`);
+    const data = (await res.json()) as PerplexitySearchResponse;
+    const content = data.choices?.[0]?.message?.content ?? "No response";
+    const citations = data.citations ?? [];
+
+    return { content, citations };
+  } finally {
+    await closeDispatcher(dispatcher);
   }
-
-  const data = (await res.json()) as PerplexitySearchResponse;
-  const content = data.choices?.[0]?.message?.content ?? "No response";
-  const citations = data.citations ?? [];
-
-  return { content, citations };
 }
 
 async function runWebSearch(params: {
@@ -371,14 +384,21 @@ async function runWebSearch(params: {
     url.searchParams.set("freshness", params.freshness);
   }
 
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      "X-Subscription-Token": params.apiKey,
-    },
-    signal: withTimeout(undefined, params.timeoutSeconds * 1000),
-  });
+  const dispatcher = resolveSearchDispatcher();
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "X-Subscription-Token": params.apiKey,
+      },
+      signal: withTimeout(undefined, params.timeoutSeconds * 1000),
+      dispatcher,
+    });
+  } finally {
+    await closeDispatcher(dispatcher);
+  }
 
   if (!res.ok) {
     const detail = await readResponseText(res);
