@@ -273,6 +273,16 @@ function resolveSearchDispatcher(): Dispatcher | undefined {
   return new ProxyAgent(WEB_FETCH_PROXY);
 }
 
+type UndiciRequestInit = RequestInit & { dispatcher?: Dispatcher };
+
+function fetchWithDispatcher(input: string, init: RequestInit, dispatcher?: Dispatcher) {
+  const requestInit: UndiciRequestInit = { ...init };
+  if (dispatcher) {
+    requestInit.dispatcher = dispatcher;
+  }
+  return fetch(input, requestInit as RequestInit);
+}
+
 async function runPerplexitySearch(params: {
   query: string;
   apiKey: string;
@@ -283,26 +293,29 @@ async function runPerplexitySearch(params: {
   const endpoint = `${params.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const dispatcher = resolveSearchDispatcher();
   try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${params.apiKey}`,
-        "HTTP-Referer": "https://clawdbot.com",
-        "X-Title": "Clawdbot Web Search",
+    const res = await fetchWithDispatcher(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.apiKey}`,
+          "HTTP-Referer": "https://clawdbot.com",
+          "X-Title": "Clawdbot Web Search",
+        },
+        body: JSON.stringify({
+          model: params.model,
+          messages: [
+            {
+              role: "user",
+              content: params.query,
+            },
+          ],
+        }),
+        signal: withTimeout(undefined, params.timeoutSeconds * 1000),
       },
-      body: JSON.stringify({
-        model: params.model,
-        messages: [
-          {
-            role: "user",
-            content: params.query,
-          },
-        ],
-      }),
-      signal: withTimeout(undefined, params.timeoutSeconds * 1000),
       dispatcher,
-    });
+    );
 
     if (!res.ok) {
       const detail = await readResponseText(res);
@@ -387,15 +400,18 @@ async function runWebSearch(params: {
   const dispatcher = resolveSearchDispatcher();
   let res: Response;
   try {
-    res = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "X-Subscription-Token": params.apiKey,
+    res = await fetchWithDispatcher(
+      url.toString(),
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "X-Subscription-Token": params.apiKey,
+        },
+        signal: withTimeout(undefined, params.timeoutSeconds * 1000),
       },
-      signal: withTimeout(undefined, params.timeoutSeconds * 1000),
       dispatcher,
-    });
+    );
   } finally {
     await closeDispatcher(dispatcher);
   }
