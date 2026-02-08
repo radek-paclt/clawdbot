@@ -11,6 +11,8 @@ export type CronRunLogEntry = {
   runAtMs?: number;
   durationMs?: number;
   nextRunAtMs?: number;
+  channel?: string;
+  to?: string;
 };
 
 export function resolveCronRunLogPath(params: { storePath: string; jobId: string }) {

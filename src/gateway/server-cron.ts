@@ -93,9 +93,42 @@ export function buildGatewayCronService(params: {
           runAtMs: evt.runAtMs,
           durationMs: evt.durationMs,
           nextRunAtMs: evt.nextRunAtMs,
+          channel: evt.channel,
+          to: evt.to,
         }).catch((err) => {
           cronLogger.warn({ err: String(err), logPath }, "cron: run log append failed");
         });
+
+        // Fire-and-forget webhook POST to management-bot
+        const webhookCfg = params.cfg.cron?.webhook;
+        if (webhookCfg?.url) {
+          const body = JSON.stringify({
+            jobId: evt.jobId,
+            status: evt.status,
+            summary: evt.summary,
+            error: evt.error,
+            channel: evt.channel,
+            to: evt.to,
+          });
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+          };
+          if (webhookCfg.secret) headers["X-Internal-Secret"] = webhookCfg.secret;
+          const userId = process.env.PARTAK_USER_ID;
+          if (userId) headers["X-User-Id"] = userId;
+          const workerId = process.env.WORKER_ID;
+          if (workerId) headers["X-Worker-Id"] = workerId;
+
+          const timeoutMs = webhookCfg.timeoutMs ?? 10_000;
+          void fetch(webhookCfg.url, {
+            method: "POST",
+            headers,
+            body,
+            signal: AbortSignal.timeout(timeoutMs),
+          }).catch((err) => {
+            cronLogger.warn({ err: String(err), url: webhookCfg.url }, "cron: webhook POST failed");
+          });
+        }
       }
     },
   });
