@@ -228,6 +228,14 @@ export const ClawdbotSchema = z
         enabled: z.boolean().optional(),
         store: z.string().optional(),
         maxConcurrentRuns: z.number().int().positive().optional(),
+        webhook: z
+          .object({
+            url: z.string(),
+            secret: z.string().optional(),
+            timeoutMs: z.number().int().positive().optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
