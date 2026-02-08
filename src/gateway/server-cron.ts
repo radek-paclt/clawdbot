@@ -100,7 +100,8 @@ export function buildGatewayCronService(params: {
         });
 
         // Fire-and-forget webhook POST to management-bot
-        const webhookCfg = params.cfg.cron?.webhook;
+        // Read config dynamically so webhook picks up runtime changes
+        const webhookCfg = loadConfig().cron?.webhook;
         if (webhookCfg?.url) {
           const body = JSON.stringify({
             jobId: evt.jobId,
