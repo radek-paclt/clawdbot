@@ -44,14 +44,17 @@ async function sniffMimeFromBase64(base64: string): Promise<string | undefined> 
   }
 }
 
-function isImageMime(mime?: string): boolean {
-  return typeof mime === "string" && mime.startsWith("image/");
+function isAcceptedMime(mime?: string): boolean {
+  if (typeof mime !== "string") return false;
+  if (mime.startsWith("image/")) return true;
+  if (mime === "application/pdf") return true;
+  return false;
 }
 
 /**
- * Parse attachments and extract images as structured content blocks.
- * Returns the message text and an array of image content blocks
- * compatible with Claude API's image format.
+ * Parse attachments and extract images/PDFs as structured content blocks.
+ * Returns the message text and an array of content blocks (images + PDFs)
+ * compatible with Claude API / OpenRouter format.
  */
 export async function parseMessageWithAttachments(
   message: string,
@@ -98,12 +101,12 @@ export async function parseMessageWithAttachments(
 
     const providedMime = normalizeMime(mime);
     const sniffedMime = normalizeMime(await sniffMimeFromBase64(b64));
-    if (sniffedMime && !isImageMime(sniffedMime)) {
-      log?.warn(`attachment ${label}: detected non-image (${sniffedMime}), dropping`);
+    if (sniffedMime && !isAcceptedMime(sniffedMime)) {
+      log?.warn(`attachment ${label}: detected non-accepted type (${sniffedMime}), dropping`);
       continue;
     }
-    if (!sniffedMime && !isImageMime(providedMime)) {
-      log?.warn(`attachment ${label}: unable to detect image mime type, dropping`);
+    if (!sniffedMime && !isAcceptedMime(providedMime)) {
+      log?.warn(`attachment ${label}: unable to detect accepted mime type, dropping`);
       continue;
     }
     if (sniffedMime && providedMime && sniffedMime !== providedMime) {

@@ -132,7 +132,7 @@ describe("parseMessageWithAttachments", () => {
     expect(logs).toHaveLength(0);
   });
 
-  it("drops non-image payloads and logs", async () => {
+  it("accepts PDF payloads", async () => {
     const logs: string[] = [];
     const pdf = Buffer.from("%PDF-1.4\n").toString("base64");
     const parsed = await parseMessageWithAttachments(
@@ -140,16 +140,35 @@ describe("parseMessageWithAttachments", () => {
       [
         {
           type: "file",
-          mimeType: "image/png",
-          fileName: "not-image.pdf",
+          mimeType: "application/pdf",
+          fileName: "document.pdf",
           content: pdf,
+        },
+      ],
+      { log: { warn: (message) => logs.push(message) } },
+    );
+    expect(parsed.images).toHaveLength(1);
+    expect(parsed.images[0]?.mimeType).toBe("application/pdf");
+  });
+
+  it("drops non-accepted payloads and logs", async () => {
+    const logs: string[] = [];
+    const zip = Buffer.from("PK\x03\x04not-a-real-zip").toString("base64");
+    const parsed = await parseMessageWithAttachments(
+      "x",
+      [
+        {
+          type: "file",
+          mimeType: "application/zip",
+          fileName: "archive.zip",
+          content: zip,
         },
       ],
       { log: { warn: (message) => logs.push(message) } },
     );
     expect(parsed.images).toHaveLength(0);
     expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatch(/non-image/i);
+    expect(logs[0]).toMatch(/non-accepted/i);
   });
 
   it("prefers sniffed mime type and logs mismatch", async () => {
@@ -182,12 +201,12 @@ describe("parseMessageWithAttachments", () => {
     );
     expect(parsed.images).toHaveLength(0);
     expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatch(/unable to detect image mime type/i);
+    expect(logs[0]).toMatch(/unable to detect accepted mime type/i);
   });
 
-  it("keeps valid images and drops invalid ones", async () => {
+  it("keeps valid images/PDFs and drops non-accepted ones", async () => {
     const logs: string[] = [];
-    const pdf = Buffer.from("%PDF-1.4\n").toString("base64");
+    const unknown = Buffer.from("not-a-known-type").toString("base64");
     const parsed = await parseMessageWithAttachments(
       "x",
       [
@@ -199,9 +218,9 @@ describe("parseMessageWithAttachments", () => {
         },
         {
           type: "file",
-          mimeType: "image/png",
-          fileName: "not-image.pdf",
-          content: pdf,
+          mimeType: "application/octet-stream",
+          fileName: "random.bin",
+          content: unknown,
         },
       ],
       { log: { warn: (message) => logs.push(message) } },
@@ -209,6 +228,6 @@ describe("parseMessageWithAttachments", () => {
     expect(parsed.images).toHaveLength(1);
     expect(parsed.images[0]?.mimeType).toBe("image/png");
     expect(parsed.images[0]?.data).toBe(PNG_1x1);
-    expect(logs.some((l) => /non-image/i.test(l))).toBe(true);
+    expect(logs.some((l) => /non-accepted/i.test(l) || /unable to detect/i.test(l))).toBe(true);
   });
 });
