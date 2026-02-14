@@ -235,6 +235,8 @@ safe to include every 30 minutes.
 If `HEARTBEAT.md` exists but is effectively empty (only blank lines and markdown
 headers like `# Heading`), Clawdbot skips the heartbeat run to save API calls.
 If the file is missing, the heartbeat still runs and the model decides what to do.
+Cron wakes (`reason: cron:*`) and exec-event wakes bypass this empty-file guard so
+queued system events are still processed.
 
 Keep it tiny (short checklist or reminders) to avoid prompt bloat.
 

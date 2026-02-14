@@ -17,6 +17,8 @@ import {
 import type { CronServiceState } from "./state.js";
 
 const STUCK_RUN_MS = 2 * 60 * 60 * 1000;
+const ONE_SHOT_RETRY_BACKOFF_SKIPPED_MS = 30 * 1000;
+const ONE_SHOT_RETRY_BACKOFF_ERROR_MS = 60 * 1000;
 
 export function assertSupportedJobSpec(job: Pick<CronJob, "sessionTarget" | "payload">) {
   if (job.sessionTarget === "main" && job.payload.kind !== "systemEvent") {
@@ -38,6 +40,12 @@ export function computeJobNextRunAtMs(job: CronJob, nowMs: number): number | und
   if (job.schedule.kind === "at") {
     // One-shot jobs stay due until they successfully finish.
     if (job.state.lastStatus === "ok" && job.state.lastRunAtMs) return undefined;
+    if (job.state.lastStatus === "skipped") {
+      return Math.max(job.schedule.atMs, nowMs + ONE_SHOT_RETRY_BACKOFF_SKIPPED_MS);
+    }
+    if (job.state.lastStatus === "error") {
+      return Math.max(job.schedule.atMs, nowMs + ONE_SHOT_RETRY_BACKOFF_ERROR_MS);
+    }
     return job.schedule.atMs;
   }
   return computeNextRunAtMs(job.schedule, nowMs);

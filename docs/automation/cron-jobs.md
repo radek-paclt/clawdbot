@@ -61,6 +61,9 @@ Cron supports three schedule kinds:
 - `every`: fixed interval (ms).
 - `cron`: 5-field cron expression with optional IANA timezone.
 
+For one-shot `at` jobs: after `skipped`/`error`, scheduler retries with a short
+backoff (currently 30s for `skipped`, 60s for `error`) to avoid tight loops.
+
 Cron expressions use `croner`. If a timezone is omitted, the Gateway host’s
 local timezone is used.
 
