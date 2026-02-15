@@ -97,6 +97,12 @@ const EXEC_EVENT_PROMPT =
   "Please relay the command output to the user in a helpful way. If the command succeeded, share the relevant output. " +
   "If it failed, explain what went wrong.";
 
+// Prompt used for scheduled cron events (reminders/tasks) so delivery does not degrade
+// into HEARTBEAT_OK acknowledgements.
+const CRON_EVENT_PROMPT =
+  "A scheduled cron event just fired. Use the system event text above as the primary message to the user. " +
+  "Send a concise, user-facing reminder/action update now. Do not reply with HEARTBEAT_OK.";
+
 function resolveActiveHoursTimezone(cfg: ClawdbotConfig, raw?: string): string {
   const trimmed = raw?.trim();
   if (!trimmed || trimmed === "user") {
@@ -500,19 +506,35 @@ export async function runHeartbeatOnce(opts: {
   const { sender } = resolveHeartbeatSenderContext({ cfg, entry, delivery });
   const responsePrefix = resolveEffectiveMessagesConfig(cfg, agentId).responsePrefix;
 
+  const isExecEvent = opts.reason === "exec-event";
+  const shouldPeekPendingEvents = isExecEvent || isCronReason;
+  const pendingEvents = shouldPeekPendingEvents ? peekSystemEvents(sessionKey) : [];
+
   // Check if this is an exec event with pending exec completion system events.
   // If so, use a specialized prompt that instructs the model to relay the result
   // instead of the standard heartbeat prompt with "reply HEARTBEAT_OK".
-  const isExecEvent = opts.reason === "exec-event";
-  const pendingEvents = isExecEvent ? peekSystemEvents(sessionKey) : [];
   const hasExecCompletion = pendingEvents.some((evt) => evt.includes("Exec finished"));
+  const hasCronEvent = isCronReason && pendingEvents.length > 0;
 
-  const prompt = hasExecCompletion ? EXEC_EVENT_PROMPT : resolveHeartbeatPrompt(cfg, heartbeat);
+  const resolveCronFallbackText = (): string | null => {
+    if (!isCronReason) return null;
+    for (let i = pendingEvents.length - 1; i >= 0; i -= 1) {
+      const text = pendingEvents[i]?.trim();
+      if (text) return text;
+    }
+    return null;
+  };
+
+  const prompt = hasExecCompletion
+    ? EXEC_EVENT_PROMPT
+    : hasCronEvent
+      ? CRON_EVENT_PROMPT
+      : resolveHeartbeatPrompt(cfg, heartbeat);
   const ctx = {
     Body: prompt,
     From: sender,
     To: sender,
-    Provider: hasExecCompletion ? "exec-event" : "heartbeat",
+    Provider: hasExecCompletion ? "exec-event" : hasCronEvent ? "cron-event" : "heartbeat",
     SessionKey: sessionKey,
   };
   if (!visibility.showAlerts && !visibility.showOk && !visibility.useIndicator) {
@@ -596,6 +618,52 @@ export async function runHeartbeatOnce(opts: {
     }
     const shouldSkipMain = normalized.shouldSkip && !normalized.hasMedia && !hasExecCompletion;
     if (shouldSkipMain && reasoningPayloads.length === 0) {
+      const cronFallbackText = resolveCronFallbackText();
+      if (cronFallbackText && delivery.channel !== "none" && delivery.to && visibility.showAlerts) {
+        const heartbeatPlugin = getChannelPlugin(delivery.channel);
+        if (heartbeatPlugin?.heartbeat?.checkReady) {
+          const readiness = await heartbeatPlugin.heartbeat.checkReady({
+            cfg,
+            accountId: delivery.accountId,
+            deps: opts.deps,
+          });
+          if (!readiness.ok) {
+            emitHeartbeatEvent({
+              status: "skipped",
+              reason: readiness.reason,
+              preview: cronFallbackText.slice(0, 200),
+              durationMs: Date.now() - startedAt,
+              channel: delivery.channel,
+            });
+            log.info("heartbeat: channel not ready", {
+              channel: delivery.channel,
+              reason: readiness.reason,
+            });
+            return { status: "skipped", reason: readiness.reason };
+          }
+        }
+
+        await deliverOutboundPayloads({
+          cfg,
+          channel: delivery.channel,
+          to: delivery.to,
+          accountId: delivery.accountId,
+          payloads: [{ text: cronFallbackText }],
+          deps: opts.deps,
+        });
+
+        emitHeartbeatEvent({
+          status: "sent",
+          to: delivery.to,
+          preview: cronFallbackText.slice(0, 200),
+          durationMs: Date.now() - startedAt,
+          hasMedia: false,
+          channel: delivery.channel,
+          indicatorType: visibility.useIndicator ? resolveIndicatorType("sent") : undefined,
+        });
+        return { status: "ran", durationMs: Date.now() - startedAt };
+      }
+
       await restoreHeartbeatUpdatedAt({
         storePath,
         sessionKey,
