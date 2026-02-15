@@ -226,6 +226,34 @@ describe("buildEmbeddedRunPayloads", () => {
     expect(payloads).toHaveLength(0);
   });
 
+  it("deduplicates identical assistant texts across turns", () => {
+    const payloads = buildEmbeddedRunPayloads({
+      assistantTexts: [
+        'Jasně, připomenu ti "test" za 1 minutu. 👍',
+        'Jasně, připomenu ti "test" za 1 minutu. 👍',
+      ],
+      toolMetas: [],
+      lastAssistant: undefined,
+      sessionKey: "session:discord",
+      inlineToolResultsAllowed: false,
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.text).toContain("připomenu");
+  });
+
+  it("keeps distinct assistant texts from different turns", () => {
+    const payloads = buildEmbeddedRunPayloads({
+      assistantTexts: ["First response", "Second different response"],
+      toolMetas: [],
+      lastAssistant: undefined,
+      sessionKey: "session:discord",
+      inlineToolResultsAllowed: false,
+    });
+
+    expect(payloads).toHaveLength(2);
+  });
+
   it("shows non-recoverable tool errors to the user", () => {
     const payloads = buildEmbeddedRunPayloads({
       assistantTexts: [],

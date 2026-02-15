@@ -146,6 +146,7 @@ export function buildEmbeddedRunPayloads(params: {
         : []
   ).filter((text) => !shouldSuppressRawErrorText(text));
 
+  const seenAnswerNormalized = new Set<string>();
   for (const text of answerTexts) {
     const {
       text: cleanedText,
@@ -157,6 +158,12 @@ export function buildEmbeddedRunPayloads(params: {
     } = parseReplyDirectives(text);
     if (!cleanedText && (!mediaUrls || mediaUrls.length === 0) && !audioAsVoice) {
       continue;
+    }
+    // Cross-turn dedup: skip identical cleaned texts from different LLM turns
+    if (cleanedText) {
+      const norm = normalizeTextForComparison(cleanedText);
+      if (norm.length > 0 && seenAnswerNormalized.has(norm)) continue;
+      if (norm.length > 0) seenAnswerNormalized.add(norm);
     }
     replyItems.push({
       text: cleanedText,
